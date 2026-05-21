@@ -3,7 +3,10 @@
 require "openapi_helper"
 
 RSpec.describe "Users API", type: :openapi do
-  before { User.delete_all }
+  before do
+    Post.delete_all
+    User.delete_all
+  end
 
   path "/api/v1/users" do
     get "List users" do

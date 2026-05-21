@@ -16,7 +16,7 @@ RSpec.describe "Response body validation", type: :openapi, openapi_schema_name: 
       response 200, "returns valid users" do
         schema type: :array, items: {"$ref" => "#/components/schemas/User"}
 
-        before { User.delete_all && User.create!(name: "Jane", email: "jane@example.com") }
+        before { Post.delete_all && User.delete_all && User.create!(name: "Jane", email: "jane@example.com") }
 
         # Happy path: real response satisfies the schema
         run_test!
@@ -25,6 +25,7 @@ RSpec.describe "Response body validation", type: :openapi, openapi_schema_name: 
   end
 
   it "fails when the response body does not match the documented schema" do
+    Post.delete_all
     User.delete_all
     User.create!(name: "Jane", email: "jane@example.com")
 
