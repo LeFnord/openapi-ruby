@@ -25,9 +25,9 @@ Key modules:
 - `Core` — OpenAPI document model and builder
 - `Components` — schema component system (Base, Loader, Registry, KeyTransformer)
 - `DSL` — framework-agnostic test DSL (Context, OperationContext, ResponseContext, MetadataStore)
-- `Adapters` — RSpec and Minitest adapters
+- `Adapters` — RSpec and Minitest adapters. RSpec supports two DSL styles: `path`/`run_test!` (schema and test interleaved) and `api_path`/`assert_api_response` (schema at top, normal specs below). Minitest uses the `api_path`/`assert_api_response` style.
 - `Middleware` — Rack middleware for request/response validation
-- `Testing` — response validator, assertions, coverage tracking
+- `Testing` — request/response validators, assertions, coverage tracking
 - `Generator` — OpenAPI spec file generation
 
 ## Testing
@@ -35,7 +35,7 @@ Key modules:
 - Unit tests in `spec/openapi_ruby/`
 - Generator tests in `spec/generators/`
 - Integration tests in `spec/integration/` — these boot the dummy Rails app
-- Dummy app in `spec/dummy/` — reference implementation with Users (RSpec) and Posts (Minitest)
+- Dummy app in `spec/dummy/` — reference implementation with Users (RSpec `path`/`run_test!` style), Posts (Minitest and RSpec `api_path`/`assert_api_response` style)
 - Dummy app specs live in `spec/dummy/spec/` and `spec/dummy/test/` exactly as a user would write them
 - RSpec pattern excludes `spec/dummy/` from autodiscovery (see `.rspec`)
 
