@@ -49,6 +49,10 @@ RSpec.describe OpenapiRuby::Configuration do
     it "defaults strict_reference_validation to :warn_only" do
       expect(config.strict_reference_validation).to eq(:warn_only)
     end
+
+    it "enables test_request_validation by default" do
+      expect(config.test_request_validation).to be true
+    end
   end
 
   describe "#strict_reference_validation=" do

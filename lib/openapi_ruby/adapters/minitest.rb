@@ -81,6 +81,21 @@ module OpenapiRuby
             request_args = {params: query_params, headers: headers}
           end
 
+          # Validate the request against the declared operation (skip for error responses,
+          # since those tests intentionally send invalid data)
+          if OpenapiRuby.configuration.test_request_validation && expected_status < 400
+            document_hash = build_validation_document(context.schema_name)
+            req_errors = Testing::RequestValidator.new(document_hash).validate(
+              operation: operation,
+              path_context: context,
+              params: params,
+              headers: headers,
+              body: body,
+              path_params: path_params
+            )
+            assert req_errors.empty?, "Request validation failed:\n#{req_errors.join("\n")}"
+          end
+
           send(method, path, **request_args)
 
           # Validate response
@@ -179,6 +194,23 @@ module OpenapiRuby
               {name: "Authorization", in: "header"}
             end
           end.uniq { |p| [p[:name], p[:in]] }
+        end
+
+        def build_validation_document(schema_name)
+          return nil unless schema_name
+
+          config = OpenapiRuby.configuration
+          schema_config = config.schemas[schema_name.to_sym] || config.schemas[schema_name.to_s]
+          return nil unless schema_config
+
+          builder = OpenapiRuby::Core::DocumentBuilder.new(schema_config)
+          OpenapiRuby::DSL::MetadataStore.contexts_for(schema_name).each do |ctx|
+            builder.add_path(ctx.path_template, ctx.to_openapi)
+          end
+          scope = schema_config[:component_scope]
+          loader = OpenapiRuby::Components::Loader.new(scope: scope)
+          builder.merge_components(loader.to_openapi_hash)
+          builder.build.data
         end
 
         def parse_response_body

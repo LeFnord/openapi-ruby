@@ -18,6 +18,10 @@ module OpenapiRuby
     # Middleware (runtime validation)
     attr_accessor :request_validation, :response_validation, :coerce_params
 
+    # Test DSL: validate that requests match the declared operation before sending.
+    # Enabled by default; set to false to disable.
+    attr_accessor :test_request_validation
+
     # OpenAPI meta-schema validation of generated specs and middleware-loaded
     # documents. One of :disabled, :enabled (raise on errors), :warn_only
     # (default, log warnings). Boolean values are accepted for backwards
@@ -46,6 +50,7 @@ module OpenapiRuby
       @request_validation = :disabled
       @response_validation = :disabled
       @coerce_params = true
+      @test_request_validation = true
       @schema_output_dir = "swagger"
       @schema_output_format = :yaml
       @ui_enabled = false

@@ -172,6 +172,21 @@ module OpenapiRuby
             path = "#{path}?#{Rack::Utils.build_nested_query(query_params)}"
           end
 
+          # Validate the request against the declared operation (skip for error responses,
+          # since those tests intentionally send invalid data)
+          if OpenapiRuby.configuration.test_request_validation && expected_status < 400
+            document_hash = OpenapiRuby::Adapters::RSpec.validation_document_for(context.schema_name)
+            req_errors = Testing::RequestValidator.new(document_hash).validate(
+              operation: operation,
+              path_context: context,
+              params: params,
+              headers: headers,
+              body: body,
+              path_params: path_params
+            )
+            raise "Request validation failed:\n#{req_errors.join("\n")}" unless req_errors.empty?
+          end
+
           send(method, path, **request_args)
 
           unless response.status == expected_status
@@ -257,6 +272,35 @@ module OpenapiRuby
             end
           else
             request_args = {headers: headers}
+          end
+
+          # Validate the request against the declared operation (skip for error responses,
+          # since those tests intentionally send invalid data)
+          response_ctx = find_in_metadata(metadata, :openapi_response)
+          expected_status = response_ctx&.status_code.to_i
+          if OpenapiRuby.configuration.test_request_validation && operation && expected_status < 400
+            path_ctx = find_in_metadata(metadata, :openapi_path_context)
+            schema_name = find_in_metadata(metadata, :openapi_schema_name)
+
+            # Collect resolved path param values for validation
+            path_param_values = {}
+            (path_ctx&.path_parameters || []).each do |param|
+              name = param["name"]
+              next unless name
+              val = resolve_let(name.to_sym)
+              path_param_values[name] = val if val
+            end
+
+            document_hash = OpenapiRuby::Adapters::RSpec.validation_document_for(schema_name)
+            req_errors = Testing::RequestValidator.new(document_hash).validate(
+              operation: operation,
+              path_context: path_ctx,
+              params: params,
+              headers: headers,
+              body: body,
+              path_params: path_param_values
+            )
+            raise "Request validation failed:\n#{req_errors.join("\n")}" unless req_errors.empty?
           end
 
           send(method.to_sym, path, **request_args)

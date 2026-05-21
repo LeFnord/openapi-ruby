@@ -31,7 +31,8 @@ RSpec.describe OpenapiRuby::Adapters::RSpec::ExampleHelpers do
       path_ctx = instance_double(
         OpenapiRuby::DSL::Context,
         path_template: "/items",
-        schema_name: nil
+        schema_name: nil,
+        path_parameters: []
       )
 
       metadata = {
