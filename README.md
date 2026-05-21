@@ -68,6 +68,10 @@ OpenapiRuby.configure do |config|
   config.request_validation = :disabled   # :enabled, :disabled, :warn_only
   config.response_validation = :disabled
 
+  # Test DSL: validate requests against declared operations before sending.
+  # Enabled by default; set to false to disable.
+  config.test_request_validation = true
+
   # Optional Swagger UI (disabled by default)
   config.ui_enabled = false
 end
@@ -230,6 +234,12 @@ rails generate openapi_ruby:component BearerAuth security_schemes
 require "openapi_ruby/rspec"
 ```
 
+RSpec supports two DSL styles. Both generate the same OpenAPI spec and validate responses (and requests) against it.
+
+### Style 1: `path` / `run_test!`
+
+Schema definition and test execution are interleaved. Each `response` block uses `let` values and `run_test!` to send the request inline:
+
 ```ruby
 # spec/requests/users_spec.rb
 require "openapi_helper"
@@ -293,11 +303,71 @@ RSpec.describe "Users API", type: :openapi do
 end
 ```
 
+### Style 2: `api_path` / `assert_api_response`
+
+Schema definition at the top, normal RSpec examples underneath. Mirrors the Minitest DSL and is useful when you want basic schema validation separated from detailed edge-case tests:
+
+```ruby
+require "openapi_helper"
+
+RSpec.describe "Users API", type: :openapi do
+  openapi_schema :public_api
+
+  api_path "/api/v1/users" do
+    get "List users" do
+      tags "Users"
+      produces "application/json"
+
+      response 200, "returns all users" do
+        schema type: :array, items: { "$ref" => "#/components/schemas/User" }
+      end
+    end
+
+    post "Create a user" do
+      consumes "application/json"
+
+      request_body required: true, content: {
+        "application/json" => {
+          schema: { "$ref" => "#/components/schemas/UserInput" }
+        }
+      }
+
+      response 201, "user created" do
+        schema "$ref" => "#/components/schemas/User"
+      end
+
+      response 422, "validation errors" do
+        schema "$ref" => "#/components/schemas/ValidationErrors"
+      end
+    end
+  end
+
+  # Normal RSpec examples
+  it "returns all users" do
+    User.create!(name: "Jane", email: "jane@example.com")
+
+    assert_api_response :get, 200 do
+      expect(parsed_body.length).to eq(1)
+    end
+  end
+
+  it "creates a user" do
+    assert_api_response :post, 201, body: { name: "Jane", email: "jane@example.com" } do
+      expect(parsed_body["name"]).to eq("Jane")
+    end
+  end
+end
+```
+
+`assert_api_response` accepts `params:`, `headers:`, `body:`, and `path_params:` keyword arguments. It validates the response status and body schema automatically, then yields to the block for additional expectations.
+
 ### DSL Reference
 
 | Method | Level | Description |
 |--------|-------|-------------|
-| `path(template, &block)` | Top | Define an API path |
+| `path(template, &block)` | Top | Define an API path (style 1) |
+| `api_path(template, &block)` | Top | Define an API path (style 2) |
+| `openapi_schema(name)` | Top | Set the schema name (style 2) |
 | `get/post/put/patch/delete(summary, &block)` | Path | Define an operation |
 | `tags(*tags)` | Operation | Tag the operation |
 | `operationId(id)` | Operation | Set operation ID |
@@ -311,7 +381,9 @@ end
 | `response(status, description, &block)` | Operation | Define expected response |
 | `schema(definition)` | Response | Response body schema |
 | `header(name, schema:, **opts)` | Response | Response header |
-| `run_test!(&block)` | Response | Execute request and validate |
+| `run_test!(&block)` | Response | Execute request and validate (style 1) |
+| `assert_api_response(method, status, **opts, &block)` | Example | Execute request and validate (style 2) |
+| `parsed_body` | Example | Parsed JSON response body |
 
 ## Testing with Minitest
 
