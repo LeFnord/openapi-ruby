@@ -11,6 +11,22 @@ module OpenapiRuby
       # All methods are inherited by nested describe/context/it_behaves_like blocks.
       # Data is stored in RSpec metadata which propagates to child groups.
       module ExampleGroupHelpers
+        def openapi_schema(name)
+          metadata[:openapi_schema_name] = name.to_sym
+        end
+
+        # Minitest-style DSL: define the schema at the top of the spec file,
+        # then write normal RSpec examples underneath using assert_api_response.
+        def api_path(template, &block)
+          schema_name = metadata[:openapi_schema_name]
+          context = DSL::Context.new(template, schema_name: schema_name)
+          context.instance_eval(&block) if block
+          metadata[:openapi_api_contexts] ||= []
+          metadata[:openapi_api_contexts] << context
+          DSL::MetadataStore.register(context)
+          context
+        end
+
         def path(template, &block)
           schema_name = metadata[:openapi_schema_name]
           context = DSL::Context.new(template, schema_name: schema_name)
@@ -104,6 +120,85 @@ module OpenapiRuby
 
       # Instance-level helper methods mixed into RSpec examples
       module ExampleHelpers
+        # Minitest-style assertion: looks up the api_path context, makes the
+        # request, validates the response status + body, then yields to the
+        # block for additional expectations.
+        def assert_api_response(method, expected_status, params: {}, headers: {}, body: nil, path_params: {}, &block)
+          meta = ::RSpec.current_example.metadata
+          context = find_api_context_for(meta, method, path_params)
+          raise OpenapiRuby::Error, "No api_path defined for #{method.upcase} in this example group" unless context
+
+          operation = context.operations[method.to_s]
+          raise OpenapiRuby::Error, "No #{method.upcase} operation defined" unless operation
+
+          response_ctx = operation.responses[expected_status.to_s]
+          raise OpenapiRuby::Error, "No response #{expected_status} defined for #{method.upcase}" unless response_ctx
+
+          base_path = resolve_base_path(context.schema_name)
+          path = "#{base_path}#{expand_path(context.path_template, params.merge(path_params))}"
+
+          # Resolve security scheme parameters
+          resolve_security_params(operation, meta).each do |param|
+            val = params[param[:name].to_sym] || params[param[:name]]
+            next if val.nil?
+
+            case param[:in].to_s
+            when "header" then headers[param[:name]] = val
+            when "query" then params[param[:name]] = val
+            when "cookie" then headers["Cookie"] = "#{param[:name]}=#{val}"
+            end
+          end
+
+          headers["Accept"] ||= "application/json"
+
+          path_param_names = context.path_parameters.map { |p| p["name"] }
+          query_params = params.reject { |k, _| path_param_names.include?(k.to_s) }
+
+          if body
+            content_type = operation.request_body_definition&.dig("content")&.keys&.first || "application/json"
+            request_args = if content_type.include?("form-data") || content_type.include?("x-www-form-urlencoded")
+              {params: body, headers: headers}
+            else
+              {
+                params: body.is_a?(String) ? body : body.to_json,
+                headers: headers.merge("Content-Type" => content_type)
+              }
+            end
+          else
+            request_args = {headers: headers}
+          end
+
+          if query_params.any?
+            path = "#{path}?#{Rack::Utils.build_nested_query(query_params)}"
+          end
+
+          send(method, path, **request_args)
+
+          unless response.status == expected_status
+            raise "Expected status #{expected_status}, got #{response.status}\nResponse body: #{response.body}"
+          end
+
+          if response_ctx.schema_definition
+            validator = Testing::ResponseValidator.new(
+              OpenapiRuby::Adapters::RSpec.validation_document_for(context.schema_name)
+            )
+            errors = validator.validate(
+              response_body: parsed_response_body,
+              status_code: response.status,
+              response_context: response_ctx
+            )
+            unless errors.empty?
+              raise "Response body validation failed:\n#{errors.join("\n")}\nResponse body: #{response.body}"
+            end
+          end
+
+          instance_eval(&block) if block
+        end
+
+        def parsed_body
+          parsed_response_body
+        end
+
         # submit_openapi_request is public so specs can call it directly
         # (e.g., for rate limiting tests that need multiple requests)
         def submit_openapi_request(metadata)
@@ -194,6 +289,29 @@ module OpenapiRuby
         end
 
         private
+
+        def find_api_context_for(metadata, method, path_params)
+          contexts = find_in_metadata(metadata, :openapi_api_contexts) || []
+          has_path_params = path_params.any?
+
+          contexts.find do |ctx|
+            next false unless ctx.operations.key?(method.to_s)
+
+            if has_path_params
+              ctx.path_template.include?("{")
+            else
+              !ctx.path_template.include?("{")
+            end
+          end
+        end
+
+        def expand_path(template, params)
+          template.gsub(/\{(\w+)\}/) do
+            name = ::Regexp.last_match(1)
+            value = params[name.to_sym] || params[name.to_s]
+            value || "{#{name}}"
+          end
+        end
 
         def resolve_path(metadata)
           path_ctx = find_in_metadata(metadata, :openapi_path_context)
