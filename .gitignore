@@ -10,3 +10,4 @@
 *.lock
 log/
 spec/dummy/tmp/
+/.worktrees/
